@@ -28,9 +28,11 @@
           quiche-mio-runner = pkgs.rustPlatform.buildRustPackage {
             pname = manifest.name;
             version = manifest.version;
-            cargoLock.lockFile = ./Cargo.lock;
-            cargoLock.outputHashes = {
-             "quiche_endpoint-0.1.0" = "sha256-YsVaL2a8WR4oDJQ3qQkQNJG6sY4n0dtOSvpmfl6DWWs=";
+            cargoLock = {
+              lockFile = ./Cargo.lock;
+              outputHashes = {
+                "quiche_endpoint-0.1.0" = "sha256-AUR7Gg/uBifh6/zc3Q4FGXh2506laXRO1q9cqIfARes=";
+              };
             };
             src = pkgs.lib.cleanSource ./.;
             nativeBuildInputs = with pkgs; [
