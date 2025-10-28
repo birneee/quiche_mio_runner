@@ -50,8 +50,7 @@ impl<'a, TConnAppData, TAppData, TExternalEventValue> Runner<TConnAppData, TAppD
 
     /// register socket for receiving and sending
     pub fn register_socket(&mut self, socket: Socket) {
-        let local_addr = socket.local_addr;
-        let socket_token = self.sockets.sockets.insert(socket);
+        let socket_token = self.sockets.insert(socket);
         let event_token = self.registry.events.insert(Event::Socket(socket_token));
         self.registry.poll.registry()
             .register(
@@ -60,7 +59,6 @@ impl<'a, TConnAppData, TAppData, TExternalEventValue> Runner<TConnAppData, TAppD
                 mio::Interest::READABLE,
             )
             .unwrap();
-        self.sockets.src_addr_to_key.insert(local_addr, socket_token);
     }
 
 

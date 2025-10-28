@@ -31,7 +31,7 @@
             cargoLock = {
               lockFile = ./Cargo.lock;
               outputHashes = {
-                "quiche_endpoint-0.1.0" = "sha256-AUR7Gg/uBifh6/zc3Q4FGXh2506laXRO1q9cqIfARes=";
+                "quiche_endpoint-0.1.0" = "sha256-NSL6yYVcvt6uXdyg41dXOR+s09zn2hcIvABgcpy/AyY=";
               };
             };
             src = pkgs.lib.cleanSource ./.;

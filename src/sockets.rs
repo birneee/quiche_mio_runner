@@ -21,4 +21,12 @@ impl MioSockets {
             segment_size,
         )
     }
+
+    /// return key
+    pub fn insert(&mut self, socket: Socket) -> usize {
+        let local_addr = socket.local_addr;
+        let key = self.sockets.insert(socket);
+        self.src_addr_to_key.insert(local_addr, key);
+        key
+    }
 }
