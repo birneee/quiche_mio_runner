@@ -6,6 +6,8 @@ mod sockets;
 mod socket;
 mod sendto;
 mod recvfrom;
+#[cfg(test)]
+mod tests;
 
 pub use config::Config;
 pub use runner::Runner;

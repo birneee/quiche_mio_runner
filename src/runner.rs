@@ -21,6 +21,8 @@ pub struct Runner<TConnAppData, TAppData, TExternalEventValue> {
     pub endpoint: Endpoint<TConnAppData, TAppData>,
     pub registry: Registry<TExternalEventValue>,
     app_timeout: Option<Duration>,
+    /// if the application marked the runner as closed
+    marked_closed: bool,
 }
 
 impl<'a, TConnAppData, TAppData, TExternalEventValue> Runner<TConnAppData, TAppData, TExternalEventValue> {
@@ -36,7 +38,7 @@ impl<'a, TConnAppData, TAppData, TExternalEventValue> Runner<TConnAppData, TAppD
         }
         Self {
             config,
-            buf: [0; MAX_UDP_PAYLOAD],
+            buf: [0; _],
             sockets: Default::default(),
             mio_events: mio::Events::with_capacity(1024),
             endpoint,
@@ -45,6 +47,7 @@ impl<'a, TConnAppData, TAppData, TExternalEventValue> Runner<TConnAppData, TAppD
                 poll,
             },
             app_timeout: None,
+            marked_closed: false,
         }
     }
 
@@ -114,22 +117,27 @@ impl<'a, TConnAppData, TAppData, TExternalEventValue> Runner<TConnAppData, TAppD
             (self.config.post_handle_recvs)(self);
 
             // send as long as packets are available
-            loop {
+            'send: loop {
                 let ok = match self.endpoint.send_packets_out(&mut self.buf) {
                     Ok(v) => v,
-                    Err(quiche_endpoint::Error::Quiche(quiche::Error::Done)) => break,
+                    Err(quiche_endpoint::Error::Done) => break 'send,
                     Err(e) => panic!("unexpected error: {:?}", e),
                 };
                 match self.sockets.send(&self.buf[..ok.total], &ok.send_info, ok.segment_size) {
-                    Ok(_) => {}
+                    Ok(written) => {
+                        assert_eq!(written, ok.total);
+                    }
                     Err(e) => error!("error sending UDP datagram: {:?}", e),
                 }
             }
 
-            self.endpoint.collect_garbage();
+            self.endpoint.collect_garbage(self.config.on_close);
 
             if !self.endpoint.is_server() && self.endpoint.num_conns() == 0 {
-                break; // stop because all client connections are closed
+                break 'run; // stop because all client connections are closed
+            }
+            if self.marked_closed {
+                break 'run; // application closed runner
             }
         }
     }
@@ -203,34 +211,26 @@ impl<'a, TConnAppData, TAppData, TExternalEventValue> Runner<TConnAppData, TAppD
 
             // process GRO segments
             // if disabled just process the one
-            for segment in buf[..len].chunks_mut(segment_size) {
+            'segment: for segment in buf[..len].chunks_mut(segment_size) {
                 match endpoint.recv(segment, info) {
                     Ok(_) => {} // everything ok
                     Err(endpoint::Error::InvalidHeader(e)) => {
                         error!("Parsing packet header failed: {:?}", e);
-                        continue;
+                        continue 'segment;
                     }
                     Err(endpoint::Error::UnknownConnID) => {
                         debug!("Received unknown connection id packet");
-                        continue;
-                    }
-                    Err(endpoint::Error::IO(e)) => {
-                        if e.kind() == io::ErrorKind::WouldBlock {
-                            trace!("send() would block");
-                            break;
-                        }
-
-                        panic!("send() failed: {:?}", e);
+                        continue 'segment;
                     }
                     Err(endpoint::Error::InvalidAddrToken) => {
-                        continue
+                        continue 'segment
                     }
                     Err(endpoint::Error::InvalidConnID) => {
-                        continue
+                        continue 'segment
                     }
                     Err(endpoint::Error::QuicheRecvFailed(e)) => {
                         error!("{}: quiche recv failed: {:?}", local_addr, e);
-                        continue
+                        continue 'segment
                     }
                     e => {
                         panic!("unexpected error: {:?}", e)
@@ -249,6 +249,13 @@ impl<'a, TConnAppData, TAppData, TExternalEventValue> Runner<TConnAppData, TAppD
     /// Must be set again after every iteration, ideally in the `post_handle_recvs` callback.
     pub fn set_app_timeout(&mut self, timeout: Duration) {
         self.app_timeout = Some(timeout);
+    }
+
+    /// Mark the runner as closed.
+    /// The runner will stop at the next opportunity.
+    /// This does not cause QUIC connections to send CONNECTION_CLOSE.
+    pub fn close(&mut self) {
+        self.marked_closed = true;
     }
 }
 
