@@ -16,3 +16,12 @@ crate-type = ["rlib", "staticlib", "cdylib"]
 
 [dev-dependencies]
 env_logger = "0.11.8"
+criterion = { version = "0.5", features = ["html_reports"] }
+pprof = { version = "0.15.0", features = ["flamegraph", "criterion"] }
+
+[[bench]]
+name = "main"
+harness = false
+
+[profile.bench]
+debug = true

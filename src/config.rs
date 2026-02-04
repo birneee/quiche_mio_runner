@@ -6,6 +6,7 @@ pub struct Config<TConnAppData, TAppData, TExternalEventValue> {
     /// executes once a batch of received QUIC packets are processed;
     /// executes before outgoing QUIC packets are generated;
     pub post_handle_recvs: fn(&mut Runner<TConnAppData, TAppData, TExternalEventValue>),
+    #[allow(clippy::type_complexity)]
     pub on_external_event: Option<fn(&mut Endpoint<TConnAppData, TAppData>, &TExternalEventValue)>,
     pub on_close: Option<fn(&Conn<TConnAppData>, &mut TAppData)>
 }

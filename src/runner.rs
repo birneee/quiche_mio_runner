@@ -9,6 +9,7 @@ use quiche_endpoint::{quiche, Endpoint};
 use slab::Slab;
 use std::cmp::min;
 use std::io;
+use std::net::SocketAddr;
 use std::time::Duration;
 
 /// Runner handles socket IO and the run loop for an `Endpoint`, which multiplexes client and server QUIC connections.
@@ -25,7 +26,7 @@ pub struct Runner<TConnAppData, TAppData, TExternalEventValue> {
     marked_closed: bool,
 }
 
-impl<'a, TConnAppData, TAppData, TExternalEventValue> Runner<TConnAppData, TAppData, TExternalEventValue> {
+impl<TConnAppData, TAppData, TExternalEventValue> Runner<TConnAppData, TAppData, TExternalEventValue> {
 
     /// construct new runner
     /// at least one socket should be registered with `Self::register_socket`
@@ -97,7 +98,6 @@ impl<'a, TConnAppData, TAppData, TExternalEventValue> Runner<TConnAppData, TAppD
                 for mio_event in &self.mio_events {
                     let event = self.registry.events.get(mio_event.token().into()).unwrap();
                     let r = Self::handle_event(
-                        mio_event,
                         event,
                         &mut self.sockets.sockets,
                         self.buf.as_mut(),
@@ -117,19 +117,18 @@ impl<'a, TConnAppData, TAppData, TExternalEventValue> Runner<TConnAppData, TAppD
             (self.config.post_handle_recvs)(self);
 
             // send as long as packets are available
-            'send: loop {
-                let ok = match self.endpoint.send_packets_out(&mut self.buf) {
-                    Ok(v) => v,
-                    Err(quiche_endpoint::Error::Done) => break 'send,
-                    Err(e) => panic!("unexpected error: {:?}", e),
-                };
-                match self.sockets.send(&self.buf[..ok.total], &ok.send_info, ok.segment_size) {
+            self.endpoint.send_all(&mut self.buf, |out, send_info, segment_size| {
+                match self.sockets.send(out, send_info, segment_size) {
                     Ok(written) => {
-                        assert_eq!(written, ok.total);
+                        assert_eq!(written, out.len());
+                        Ok(())
                     }
-                    Err(e) => error!("error sending UDP datagram: {:?}", e),
+                    Err(e) => {
+                        error!("error sending UDP datagram: {:?}", e);
+                        Err(e)
+                    },
                 }
-            }
+            });
 
             self.endpoint.collect_garbage(self.config.on_close);
 
@@ -142,8 +141,8 @@ impl<'a, TConnAppData, TAppData, TExternalEventValue> Runner<TConnAppData, TAppD
         }
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn handle_event(
-        mio_event: &mio::event::Event,
         event: &Event<TExternalEventValue>,
         sockets: &mut Slab<Socket>,
         buf: &mut [u8],
@@ -155,7 +154,7 @@ impl<'a, TConnAppData, TAppData, TExternalEventValue> Runner<TConnAppData, TAppD
                 Err(endpoint::Error::CloseByUser)
             }
             Event::Socket(_) => {
-                Self::handle_readable_event(mio_event, event, sockets, buf, endpoint)
+                Self::handle_readable_event(event, sockets, buf, endpoint)
             }
             Event::External(v) => {
                 if let Some(on_external_event) = on_external_event {
@@ -166,14 +165,70 @@ impl<'a, TConnAppData, TAppData, TExternalEventValue> Runner<TConnAppData, TAppD
         }
     }
 
+    // returns WouldBlock if nothing to receive
+    fn recv_single<T1, T2>(socket: &mut Socket, buf: &mut [u8], local_addr: SocketAddr, endpoint: &mut Endpoint<T1, T2>) -> io::Result<()> {
+        let (len, from, segment_size) = match socket.recv(buf) {
+            Ok(v) => v,
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                // There are no more UDP packets to read on this socket.
+                // Process subsequent events.
+                return Err(e)
+            },
+            Err(e) => {
+                unimplemented!("{:?}", e);
+            }
+        };
+
+        let segment_size = if segment_size == 0 {
+            len
+        } else {
+            segment_size as usize
+        };
+
+        trace!("{}: got {} bytes of {} byte segments", local_addr, len, segment_size);
+
+        let info = quiche::RecvInfo {
+            to: local_addr,
+            from,
+        };
+
+        // process GRO segments
+        // if disabled just process the one
+        'segment: for segment in buf[..len].chunks_mut(segment_size) {
+            match endpoint.recv(segment, info) {
+                Ok(_) => {} // everything ok
+                Err(endpoint::Error::InvalidHeader(e)) => {
+                    error!("Parsing packet header failed: {:?}", e);
+                    continue 'segment;
+                }
+                Err(endpoint::Error::UnknownConnID) => {
+                    debug!("Received unknown connection id packet");
+                    continue 'segment;
+                }
+                Err(endpoint::Error::InvalidAddrToken) => {
+                    continue 'segment
+                }
+                Err(endpoint::Error::InvalidConnID) => {
+                    continue 'segment
+                }
+                Err(endpoint::Error::QuicheRecvFailed(e)) => {
+                    error!("{}: quiche recv failed: {:?}", local_addr, e);
+                    continue 'segment
+                }
+                e => {
+                    panic!("unexpected error: {:?}", e)
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn handle_readable_event(
-        mio_event: &mio::event::Event,
         event: &Event<TExternalEventValue>,
         sockets: &mut Slab<Socket>,
         buf: &mut [u8],
         endpoint: &mut Endpoint<TConnAppData, TAppData>,
     ) -> endpoint::Result<()> {
-        debug_assert!(mio_event.is_readable());
         let socket = if let Event::Socket(socket_token) = event {
             &mut sockets[*socket_token]
         } else {
@@ -181,61 +236,18 @@ impl<'a, TConnAppData, TAppData, TExternalEventValue> Runner<TConnAppData, TAppD
         };
         let local_addr = socket.local_addr;
         'read: loop {
-            let (len, from, segment_size) = match socket.recv(buf) {
-                Ok(v) => v,
-
-                Err(e) => {
-                    // There are no more UDP packets to read on this socket.
-                    // Process subsequent events.
-                    if e.kind() == std::io::ErrorKind::WouldBlock {
-                        trace!("{}: recv() would block", local_addr);
-                        break 'read;
-                    }
-
-                    return Err(endpoint::Error::IO(e));
-                }
-            };
-
-            let segment_size = if segment_size == 0 {
-                len
-            } else {
-                segment_size as usize
-            };
-
-            trace!("{}: got {} bytes of {} byte segments", local_addr, len, segment_size);
-
-            let info = quiche::RecvInfo {
-                to: local_addr,
-                from,
-            };
-
-            // process GRO segments
-            // if disabled just process the one
-            'segment: for segment in buf[..len].chunks_mut(segment_size) {
-                match endpoint.recv(segment, info) {
-                    Ok(_) => {} // everything ok
-                    Err(endpoint::Error::InvalidHeader(e)) => {
-                        error!("Parsing packet header failed: {:?}", e);
-                        continue 'segment;
-                    }
-                    Err(endpoint::Error::UnknownConnID) => {
-                        debug!("Received unknown connection id packet");
-                        continue 'segment;
-                    }
-                    Err(endpoint::Error::InvalidAddrToken) => {
-                        continue 'segment
-                    }
-                    Err(endpoint::Error::InvalidConnID) => {
-                        continue 'segment
-                    }
-                    Err(endpoint::Error::QuicheRecvFailed(e)) => {
-                        error!("{}: quiche recv failed: {:?}", local_addr, e);
-                        continue 'segment
-                    }
-                    e => {
-                        panic!("unexpected error: {:?}", e)
-                    }
-                }
+            match Self::recv_single(
+                socket,
+                buf,
+                local_addr,
+                endpoint,
+            ) {
+                Ok(_) => {},
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    trace!("{}: recv() would block", local_addr);
+                    break 'read;
+                },
+                Err(e) => unimplemented!("{:?}", e)
             }
         }
         Ok(())

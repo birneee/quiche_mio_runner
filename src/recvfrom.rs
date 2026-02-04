@@ -5,7 +5,7 @@ use nix::sys::socket::{recvmsg, setsockopt, AddressFamily, MsgFlags, SockaddrLik
 use std::io;
 use std::io::IoSliceMut;
 use std::mem::size_of;
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::os::fd::AsRawFd;
 
 
@@ -44,11 +44,11 @@ fn recv_from_gro(
                     _ => panic!("unexpected control message")
                 }
             }
-            let addr = msg.address.map(|a| match a.family()? {
-                AddressFamily::Inet => a.as_sockaddr_in().map(|a| SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::from(a.ip()), a.port()))),
-                AddressFamily::Inet6 => a.as_sockaddr_in6().map(|a| SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::from(a.ip()), a.port(), a.flowinfo(), a.scope_id()))),
+            let addr = msg.address.and_then(|a| match a.family()? {
+                AddressFamily::Inet => a.as_sockaddr_in().map(|a| SocketAddr::V4(SocketAddrV4::new(a.ip(), a.port()))),
+                AddressFamily::Inet6 => a.as_sockaddr_in6().map(|a| SocketAddr::V6(SocketAddrV6::new(a.ip(), a.port(), a.flowinfo(), a.scope_id()))),
                 _ => unreachable!()
-            }).flatten().unwrap();
+            }).unwrap();
 
             Ok((msg.bytes, addr, gro_size as u16))
         }
