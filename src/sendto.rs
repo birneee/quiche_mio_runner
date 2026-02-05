@@ -26,16 +26,15 @@
 
 use std::cmp;
 
-use quiche_endpoint::quiche;
 use quiche_endpoint::quiche::SendInfo;
 use std::io;
-use std::time::Instant;
 
 /// For Linux, try to detect GSO is available.
 #[cfg(target_os = "linux")]
 pub fn detect_gso(socket: &mio::net::UdpSocket, segment_size: usize) -> bool {
     use nix::sys::socket::setsockopt;
     use nix::sys::socket::sockopt::UdpGsoSegment;
+    use std::time::Instant;
 
     send_to_gso_pacing(socket, &[0; 9000], &SendInfo {
         from: socket.local_addr().unwrap(),
@@ -55,7 +54,7 @@ pub fn detect_gso(_socket: &mio::net::UdpSocket, _segment_size: usize) -> bool {
 /// Send packets using sendmsg() with GSO.
 #[cfg(target_os = "linux")]
 fn send_to_gso_pacing(
-    socket: &mio::net::UdpSocket, buf: &[u8], send_info: &quiche::SendInfo,
+    socket: &mio::net::UdpSocket, buf: &[u8], send_info: &SendInfo,
     segment_size: usize,
 ) -> io::Result<usize> {
     use nix::sys::socket::sendmsg;
@@ -103,7 +102,7 @@ fn send_to_gso_pacing(
 ///
 /// Otherwise, send packet using socket.send_to().
 pub fn send_to(
-    socket: &mio::net::UdpSocket, buf: &[u8], send_info: &quiche::SendInfo,
+    socket: &mio::net::UdpSocket, buf: &[u8], send_info: &SendInfo,
     segment_size: usize, pacing: bool, enable_gso: bool,
 ) -> io::Result<usize> {
     if pacing && enable_gso {
