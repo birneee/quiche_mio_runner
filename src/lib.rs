@@ -14,6 +14,7 @@ pub use runner::Runner;
 pub use socket::Socket;
 
 pub use socket::gso_supported;
+#[cfg(target_os = "linux")]
 pub use socket::send_buffer_queued;
 
 /// reexport dependency

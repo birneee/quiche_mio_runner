@@ -1,20 +1,23 @@
-use libc::c_uint;
-use nix::sys::socket::sockopt::UdpGroSegment;
-use nix::sys::socket::ControlMessageOwned::UdpGroSegments;
-use nix::sys::socket::{recvmsg, setsockopt, AddressFamily, MsgFlags, SockaddrLike, SockaddrStorage};
+use nix::sys::socket::MsgFlags;
 use std::io;
-use std::io::IoSliceMut;
-use std::mem::size_of;
-use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6};
-use std::os::fd::AsRawFd;
-
+use std::net::SocketAddr;
 
 /// For Linux, try to detect GRO is available.
 #[cfg(target_os = "linux")]
 pub fn enable_gro(socket: &mio::net::UdpSocket) -> bool {
+    use nix::sys::socket::setsockopt;
+    use nix::sys::socket::sockopt::UdpGroSegment;
+    use std::os::fd::AsRawFd;
+
     // mio::net::UdpSocket doesn't implement AsFd (yet?).
     let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(socket.as_raw_fd()) };
     setsockopt(&fd, UdpGroSegment, &true).is_ok()
+}
+
+/// For non-Linux, GRO is not available.
+#[cfg(not(target_os = "linux"))]
+pub fn enable_gro(_socket: &mio::net::UdpSocket) -> bool {
+    false
 }
 
 // Receive packet using recvmsg() with GRO
@@ -25,6 +28,14 @@ fn recv_from_gro(
     cmsg_buf: &mut Vec<u8>,
     flags: MsgFlags,
 ) -> io::Result<(usize, SocketAddr, u16)> {
+    use libc::c_uint;
+    use nix::sys::socket::ControlMessageOwned::UdpGroSegments;
+    use nix::sys::socket::{recvmsg, AddressFamily, SockaddrLike, SockaddrStorage};
+    use std::io::IoSliceMut;
+    use std::mem::size_of;
+    use std::net::{SocketAddrV4, SocketAddrV6};
+    use std::os::fd::AsRawFd;
+
     unsafe { debug_assert!(cmsg_buf.capacity() >= libc::CMSG_SPACE(size_of::<u32>() as c_uint) as usize); }
 
     let mut iov = [IoSliceMut::new(buf)];
@@ -57,6 +68,7 @@ fn recv_from_gro(
 }
 
 
+#[cfg(target_os = "linux")]
 pub fn recv_from(
     socket: &mio::net::UdpSocket,
     buf: &mut [u8],
@@ -69,5 +81,16 @@ pub fn recv_from(
     } else {
         socket.recv_from(buf).map(|(size, addr)| (size, addr, size as u16))
     }
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn recv_from(
+    socket: &mio::net::UdpSocket,
+    buf: &mut [u8],
+    _cmsg_buf: &mut Vec<u8>,
+    _flags: MsgFlags,
+    _enable_gro: bool,
+) -> io::Result<(usize, SocketAddr, u16)> {
+    socket.recv_from(buf).map(|(size, addr)| (size, addr, size as u16))
 }
 

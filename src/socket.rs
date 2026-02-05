@@ -1,15 +1,12 @@
 use crate::recvfrom;
 use crate::recvfrom::recv_from;
 use crate::sendto::{detect_gso, send_to};
-use libc::{ioctl, TIOCOUTQ};
 use mio::net::UdpSocket;
 use nix::cmsg_space;
-use nix::sys::socket::sockopt::UdpGsoSegment;
-use nix::sys::socket::{setsockopt, MsgFlags};
+use nix::sys::socket::MsgFlags;
 use quiche_endpoint::quiche;
 use std::io;
 use std::net::SocketAddr;
-use std::os::fd::RawFd;
 
 pub struct Socket {
     pub inner: UdpSocket,
@@ -76,7 +73,14 @@ fn set_txtime_sockopt(sock: &mio::net::UdpSocket) -> io::Result<()> {
     Ok(())
 }
 
-pub fn send_buffer_queued(fd: RawFd) -> io::Result<usize> {
+#[cfg(not(target_os = "linux"))]
+fn set_txtime_sockopt(_sock: &mio::net::UdpSocket) -> io::Result<()> {
+    Err(io::Error::new(io::ErrorKind::Unsupported, "SO_TXTIME not supported on this platform"))
+}
+
+#[cfg(target_os = "linux")]
+pub fn send_buffer_queued(fd: std::os::fd::RawFd) -> io::Result<usize> {
+    use libc::{ioctl, TIOCOUTQ};
     let mut availabe: i32 = 0;
     match unsafe { ioctl(fd, TIOCOUTQ, &mut availabe) } {
         -1 => Err(io::Error::last_os_error()),
@@ -84,7 +88,16 @@ pub fn send_buffer_queued(fd: RawFd) -> io::Result<usize> {
     }
 }
 
+#[cfg(target_os = "linux")]
 pub fn gso_supported() -> bool {
+    use mio::net::UdpSocket;
+    use nix::sys::socket::setsockopt;
+    use nix::sys::socket::sockopt::UdpGsoSegment;
     let socket = UdpSocket::bind("127.0.0.1:0".parse().unwrap()).unwrap();
     setsockopt(&socket, UdpGsoSegment, &1500).is_ok()
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn gso_supported() -> bool {
+    false
 }
