@@ -6,7 +6,7 @@ use nix::cmsg_space;
 use nix::sys::socket::MsgFlags;
 use quiche_endpoint::quiche;
 use std::io;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, ToSocketAddrs};
 
 pub struct Socket {
     pub inner: UdpSocket,
@@ -20,8 +20,14 @@ pub struct Socket {
 }
 
 impl Socket {
-    pub fn bind(addr: SocketAddr, disable_gro: bool, disable_pacing: bool, disable_gso: bool) -> io::Result<Self> {
-        let inner = mio::net::UdpSocket::bind(addr)?;
+    pub fn bind(addrs: impl ToSocketAddrs) -> io:: Result<Self> {
+        Self::bind_with_options(addrs, false, false, false)
+    }
+
+    pub fn bind_with_options(addrs: impl ToSocketAddrs, disable_gro: bool, disable_pacing: bool, disable_gso: bool) -> io::Result<Self> {
+        let addrs: Vec<SocketAddr> = addrs.to_socket_addrs()?.collect();
+        assert!(addrs.len() == 1);
+        let inner = UdpSocket::bind(addrs[0])?;
         let local_addr = inner.local_addr()?;
 
         let enable_gro = !disable_gro && recvfrom::enable_gro(&inner);

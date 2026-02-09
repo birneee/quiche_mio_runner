@@ -170,7 +170,7 @@ fn single_runner_for_client_server() {
         ),
         None,
     );
-    let socket = crate::Socket::bind("127.0.0.1:0".parse().unwrap(), false, false, false).unwrap();
+    let socket = crate::Socket::bind("127.0.0.1:0").unwrap();
     let addr = socket.local_addr;
     r.register_socket(socket);
     r.endpoint.connect(
@@ -224,9 +224,9 @@ fn stream_two_runners() {
         ),
         None,
     );
-    sr.register_socket(Socket::bind("127.0.0.1:0".parse().unwrap(), false, false, false).unwrap());
+    sr.register_socket(Socket::bind("127.0.0.1:0").unwrap());
     let mut cr = {
-        let socket = Socket::bind("127.0.0.1:0".parse().unwrap(), false, false, false).unwrap();
+        let socket = Socket::bind("127.0.0.1:0").unwrap();
         let mut r = Runner::<(), ProduceApp, ()>::new(
             {
                 let mut c = Config::<(), ProduceApp, ()>::default();
@@ -305,10 +305,10 @@ fn parallel_upload_on_separate_runners() {
         ),
         None,
     );
-    sr.register_socket(Socket::bind("127.0.0.1:0".parse().unwrap(), false, false, false).unwrap());
+    sr.register_socket(Socket::bind("127.0.0.1:0").unwrap());
     let crs: Vec<Runner<(), ProduceApp, ()>> = (0..NUM_CLIENTS)
         .map(|_| {
-            let socket = Socket::bind("127.0.0.1:0".parse().unwrap(), false, false, false).unwrap();
+            let socket = Socket::bind("127.0.0.1:0").unwrap();
             let mut r = Runner::<(), ProduceApp, ()>::new(
                 {
                     let mut c = Config::<(), ProduceApp, ()>::default();
@@ -393,10 +393,10 @@ fn parallel_download_on_separate_runners() {
         ),
         None,
     );
-    sr.register_socket(Socket::bind("127.0.0.1:0".parse().unwrap(), false, false, false).unwrap());
+    sr.register_socket(Socket::bind("127.0.0.1:0").unwrap());
     let crs: Vec<Runner<(), ConsumeApp, ()>> = (0..NUM_CLIENTS)
         .map(|_| {
-            let socket = Socket::bind("127.0.0.1:0".parse().unwrap(), false, false, false).unwrap();
+            let socket = Socket::bind("127.0.0.1:0").unwrap();
             let mut r = Runner::<(), ConsumeApp, ()>::new(
                 {
                     let mut c = Config::<(), ConsumeApp, ()>::default();

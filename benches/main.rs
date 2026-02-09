@@ -75,7 +75,7 @@ fn throughput(msg_size: usize, disable_gso: bool, disable_gro: bool) {
             ),
             None,
         );
-        r.register_socket(Socket::bind("127.0.0.1:0".parse().unwrap(), disable_gro, false, disable_gso).unwrap());
+        r.register_socket(Socket::bind_with_options("127.0.0.1:0", disable_gro, false, disable_gso).unwrap());
         r
     };
     //client
@@ -85,7 +85,7 @@ fn throughput(msg_size: usize, disable_gso: bool, disable_gro: bool) {
             stream_data_sent: usize,
             buf: [u8; 100_000],
         }
-        let socket = Socket::bind("127.0.0.1:0".parse().unwrap(), disable_gro, false, disable_gso).unwrap();
+        let socket = Socket::bind_with_options("127.0.0.1:0", disable_gro, false, disable_gso).unwrap();
         let mut r = Runner::<(), AppData, ()>::new(
             {
                 let mut c = Config::<(), AppData, ()>::default();
