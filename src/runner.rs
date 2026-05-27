@@ -2,7 +2,6 @@ use crate::config::Config;
 use crate::socket::Socket;
 use crate::sockets::MioSockets;
 use log::{debug, error, trace};
-use mio::unix::pipe::Receiver;
 use quiche_endpoint as endpoint;
 use quiche_endpoint::MAX_UDP_PAYLOAD;
 use quiche_endpoint::{quiche, Endpoint};
@@ -30,13 +29,9 @@ impl<TConnAppData, TAppData, TExternalEventValue> Runner<TConnAppData, TAppData,
 
     /// construct new runner
     /// at least one socket should be registered with `Self::register_socket`
-    pub fn new(config: Config<TConnAppData, TAppData, TExternalEventValue>,endpoint: Endpoint<TConnAppData, TAppData>, close_pipe_rx: Option<&mut Receiver>) -> Self {
+    pub fn new(config: Config<TConnAppData, TAppData, TExternalEventValue>, endpoint: Endpoint<TConnAppData, TAppData>) -> Self {
         let poll = mio::Poll::new().unwrap();
-        let mut events = Slab::new();
-        if let Some(close_pipe_rx) = close_pipe_rx {
-            let token = events.insert(Event::Close);
-            poll.registry().register(close_pipe_rx, mio::Token(token), mio::Interest::READABLE).unwrap();
-        }
+        let events = Slab::new();
         Self {
             config,
             buf: [0; _],
@@ -46,6 +41,7 @@ impl<TConnAppData, TAppData, TExternalEventValue> Runner<TConnAppData, TAppData,
             registry: Registry {
                 events,
                 poll,
+                owned_sources: Vec::new(),
             },
             app_timeout: None,
             marked_closed: false,
@@ -253,6 +249,7 @@ impl<TConnAppData, TAppData, TExternalEventValue> Runner<TConnAppData, TAppData,
         Ok(())
     }
 
+    /// Returns the registry for registering mio events.
     pub fn registry(&mut self) -> &mut Registry<TExternalEventValue> {
         &mut self.registry
     }
@@ -274,9 +271,27 @@ impl<TConnAppData, TAppData, TExternalEventValue> Runner<TConnAppData, TAppData,
 pub struct Registry<TExternalEventValue> {
     events: Slab<Event<TExternalEventValue>>,
     poll: mio::Poll,
+    owned_sources: Vec<Box<dyn mio::event::Source + Send>>,
 }
 
 impl <TExternalEventValue> Registry<TExternalEventValue> {
+    /// Register a close signal source. When the source becomes readable, the runner stops.
+    pub fn register_close<S>(&mut self, source: &mut S)
+    where S: mio::event::Source + ?Sized
+    {
+        let token = self.events.insert(Event::Close);
+        self.poll.registry().register(source, mio::Token(token), mio::Interest::READABLE).unwrap();
+    }
+
+    /// Same as [`Self::register_close`], but takes ownership of the source.
+    pub fn register_close_owned<S>(&mut self, mut source: S)
+    where S: mio::event::Source + Send + 'static
+    {
+        self.register_close(&mut source);
+        self.owned_sources.push(Box::new(source));
+    }
+
+    /// Register an external event source. When the source becomes readable, `Config::on_external_event` is called with the associated `value`.
     pub fn register_external<S>(
         &mut self,
         source: &mut S,

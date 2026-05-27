@@ -168,7 +168,6 @@ fn single_runner_for_client_server() {
                 server_app: ConsumeApp::new(MSG_SIZE),
             },
         ),
-        None,
     );
     let socket = crate::Socket::bind("127.0.0.1:0").unwrap();
     let addr = socket.local_addr;
@@ -222,7 +221,6 @@ fn stream_two_runners() {
             EndpointConfig::default(),
             ConsumeApp::new(MSG_SIZE),
         ),
-        None,
     );
     sr.register_socket(Socket::bind("127.0.0.1:0").unwrap());
     let mut cr = {
@@ -259,7 +257,6 @@ fn stream_two_runners() {
                 );
                 e
             },
-            None,
         );
         r.register_socket(socket);
         r
@@ -303,7 +300,6 @@ fn parallel_upload_on_separate_runners() {
             EndpointConfig::default(),
             ConsumeApp::new(MSG_SIZE*NUM_CLIENTS),
         ),
-        None,
     );
     sr.register_socket(Socket::bind("127.0.0.1:0").unwrap());
     let crs: Vec<Runner<(), ProduceApp, ()>> = (0..NUM_CLIENTS)
@@ -341,7 +337,6 @@ fn parallel_upload_on_separate_runners() {
                     );
                     e
                 },
-                None,
             );
             r.register_socket(socket);
             r
@@ -391,7 +386,6 @@ fn parallel_download_on_separate_runners() {
             EndpointConfig::default(),
             ProduceApp::new(MSG_SIZE, NUM_CLIENTS, 1),
         ),
-        None,
     );
     sr.register_socket(Socket::bind("127.0.0.1:0").unwrap());
     let crs: Vec<Runner<(), ConsumeApp, ()>> = (0..NUM_CLIENTS)
@@ -432,7 +426,6 @@ fn parallel_download_on_separate_runners() {
                     );
                     e
                 },
-                None,
             );
             r.register_socket(socket);
             r
