@@ -307,6 +307,19 @@ impl <TExternalEventValue> Registry<TExternalEventValue> {
             interest,
         ).unwrap();
     }
+
+    /// Same as [`Self::register_external`], but takes ownership of the source.
+    pub fn register_external_owned<S>(
+        &mut self,
+        mut source: S,
+        interest: mio::Interest,
+        value: TExternalEventValue
+    )
+    where S: mio::event::Source + Send + 'static
+    {
+        self.register_external(&mut source, interest, value);
+        self.owned_sources.push(Box::new(source));
+    }
 }
 
 pub enum Event<T> {
