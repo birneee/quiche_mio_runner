@@ -50,7 +50,7 @@
             cargoLock = {
               lockFile = ./Cargo.lock;
               outputHashes = {
-                "quiche_endpoint-0.1.0" = "sha256-2tsnr6MR+70wzXCyvS3vUBlCIDTNvUBUtnRx5goKezg=";
+                "quiche_endpoint-0.1.0" = "sha256-6Ge1+GcJVBeJBi3mbFExzVU4ow4CvhEmV3spJfoSeR4=";
               };
             };
             src = pkgs.lib.cleanSource ./.;

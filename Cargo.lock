@@ -1138,7 +1138,7 @@ dependencies = [
 [[package]]
 name = "quiche_endpoint"
 version = "0.1.0"
-source = "git+https://github.com/birneee/quiche_endpoint#0aea0a10163cafa0505290cf4f21b0d82648dc28"
+source = "git+https://github.com/birneee/quiche_endpoint#45aedf409b6e6af886ac884230c28d3a84741062"
 dependencies = [
  "boring",
  "log",
